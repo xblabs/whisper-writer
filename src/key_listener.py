@@ -232,15 +232,24 @@ class InputBackend(ABC):
         """
         pass
 
-    @abstractmethod
-    def on_input_event(self, event: tuple[KeyCode, InputEvent]):
-        """
-        Handle an input event.
-        This method is called when an input event is detected.
 
-        :param event (Tuple[KeyCode, InputEvent]): A tuple containing the key code and the type of event.
-        """
-        pass
+    def on_input_event(self, event):
+        """Handle input events and trigger callbacks if the key chord becomes active or inactive."""
+        if event is None:
+            return
+
+        if not self.key_chord or not self.active_backend:
+            return
+
+        key, event_type = event  # Now safe to unpack
+        was_active = self.key_chord.is_active()
+        is_active = self.key_chord.update(key, event_type)
+
+        if not was_active and is_active:
+            self._trigger_callbacks("on_activate")
+        elif was_active and not is_active:
+            self._trigger_callbacks("on_deactivate")
+            
 
 class KeyChord:
     """
@@ -291,7 +300,7 @@ class KeyListener:
 
     def initialize_backends(self):
         """Initialize available input backends."""
-        backend_classes = [EvdevBackend, PynputBackend]
+        backend_classes = [EvdevBackend, CustomPynputBackend]
         self.backends = [backend_class() for backend_class in backend_classes if backend_class.is_available()]
 
     def select_backend_from_config(self):
@@ -303,7 +312,7 @@ class KeyListener:
         else:
             backend_map = {
                 'evdev': EvdevBackend,
-                'pynput': PynputBackend
+                'pynput': CustomPynputBackend
             }
 
             if preferred_backend in backend_map:
@@ -960,3 +969,33 @@ class PynputBackend(InputBackend):
         This method is called for each processed input event.
         """
         pass
+
+class CustomPynputBackend(PynputBackend):
+    """
+    A custom subclass of PynputBackend that overrides _translate_key_event
+    to ignore unmapped keys instead of defaulting to KeyCode.SPACE.
+    """
+    def _translate_key_event(self, native_event):
+        """
+        Translate a pynput event to our internal event representation.
+        Returns None if the key is not mapped.
+        """
+        pynput_key, is_press = native_event
+        # Use the original key map from the parent class
+        key_code = self.key_map.get(pynput_key)
+        if key_code is None:
+            return None  # Ignore keys that are not explicitly mapped
+        event_type = InputEvent.KEY_PRESS if is_press else InputEvent.KEY_RELEASE
+        return key_code, event_type
+		
+		
+    def _on_keyboard_press(self, key):
+        translated_event = self._translate_key_event((key, True))
+        if translated_event is not None:
+            self.on_input_event(translated_event)
+            
+
+    def _on_keyboard_release(self, key):
+        translated_event = self._translate_key_event((key, False))
+        if translated_event is not None:
+            self.on_input_event(translated_event)
