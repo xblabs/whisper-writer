@@ -238,12 +238,19 @@ class InputBackend(ABC):
         if event is None:
             return
 
-        if not self.key_chord or not self.active_backend:
-            return
-
-        key, event_type = event  # Now safe to unpack
+        key, event_type = event
+        # Debug print to show the event and the current pressed keys
+        print("Received event:", key, event_type)
         was_active = self.key_chord.is_active()
         is_active = self.key_chord.update(key, event_type)
+        print("Current pressed keys:", self.key_chord.pressed_keys, "-> is_active:", is_active)
+
+        # Optional: enforce that the CTRL modifier is present.
+        # (Assuming that self.key_chord.keys includes a frozenset for CTRL)
+        ctrl_required = frozenset({KeyCode.CTRL_LEFT, KeyCode.CTRL_RIGHT})
+        if is_active and not any(ctrl in self.key_chord.pressed_keys for ctrl in ctrl_required):
+            print("CTRL not pressed - ignoring activation")
+            is_active = False
 
         if not was_active and is_active:
             self._trigger_callbacks("on_activate")
